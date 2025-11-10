@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	nLayers = 12
-	nHeads  = 12
-	headDim = 64
+	vocabSize = 50257
+	nLayers   = 12
+	nHeads    = 12
+	headDim   = 64
 )
 
 func main() {
@@ -24,16 +25,8 @@ func main() {
 
 	defer ort.DestroyEnvironment()
 
-	inputNames := []string{"input_ids", "position_ids", "attention_mask"}
-	outputNames := []string{"logits"}
-
-	tokens, _ := ort.NewTensor[int64]([]int64{1, 1}, []int64{464})
-	positions, _ := ort.NewTensor[int64]([]int64{1, 1}, []int64{0})
-	attentionMask, _ := ort.NewTensor[int64]([]int64{1, 1}, []int64{1})
-	logits, _ := ort.NewEmptyTensor[float32]([]int64{1, 1, 50257})
-
-	inputs := []ort.Value{ort.Value(tokens), ort.Value(positions), ort.Value(attentionMask)}
-	outputs := []ort.Value{ort.Value(logits)}
+	inputNames, inputs, _ := initInputs()
+	outputNames, outputs, logits, _ := initOutputs()
 
 	cacheNames, cacheValues := emptyCache()
 
@@ -67,6 +60,12 @@ func main() {
 	for i, t := range idx {
 		fmt.Printf("%.4f [%d]\n", p[i], t)
 	}
+
+	foo := outputNames[1:]
+	bar := outputs[1:]
+
+	fmt.Println(foo)
+	fmt.Println(bar)
 }
 
 func emptyCache() ([]string, []ort.Value) {
@@ -86,6 +85,65 @@ func emptyCache() ([]string, []ort.Value) {
 	}
 
 	return names, values
+}
+
+func initInputs() ([]string, []ort.Value, error) {
+	inputNames := []string{"input_ids", "position_ids", "attention_mask"}
+
+	var tokens *ort.Tensor[int64]
+	var positions *ort.Tensor[int64]
+	var attentionMask *ort.Tensor[int64]
+
+	if t, err := ort.NewTensor[int64]([]int64{1, 1}, []int64{464}); err != nil {
+		return nil, nil, err
+	} else {
+		tokens = t
+	}
+
+	if p, err := ort.NewTensor[int64]([]int64{1, 1}, []int64{0}); err != nil {
+		return nil, nil, err
+	} else {
+		positions = p
+	}
+
+	if m, err := ort.NewTensor[int64]([]int64{1, 1}, []int64{1}); err != nil {
+		return nil, nil, err
+	} else {
+		attentionMask = m
+	}
+
+	inputs := []ort.Value{ort.Value(tokens), ort.Value(positions), ort.Value(attentionMask)}
+
+	return inputNames, inputs, nil
+}
+
+func initOutputs() ([]string, []ort.Value, *ort.Tensor[float32], error) {
+	outputNames := make([]string, 0, 1+2*nLayers)
+	outputValues := make([]ort.Value, 0, 1+2*nLayers)
+
+	logits, err := ort.NewEmptyTensor[float32]([]int64{1, 1, int64(vocabSize)})
+
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	outputNames = append(outputNames, "logits")
+	outputValues = append(outputValues, ort.Value(logits))
+
+	shape := []int64{1, int64(nHeads), 1, int64(headDim)}
+
+	for i := range nLayers {
+		kName := fmt.Sprintf("present.%d.key", i)
+		vName := fmt.Sprintf("present.%d.value", i)
+
+		kTensor, _ := ort.NewEmptyTensor[float32](shape)
+		vTensor, _ := ort.NewEmptyTensor[float32](shape)
+
+		outputNames = append(outputNames, kName, vName)
+		outputValues = append(outputValues, ort.Value(kTensor), ort.Value(vTensor))
+	}
+
+	return outputNames, outputValues, logits, nil
 }
 
 func softmax(logits []float32) []float32 {
