@@ -56,7 +56,7 @@ func main() {
 }
 
 func softmax(logits []float32) []float32 {
-	m := float32(0)
+	m := logits[0]
 
 	for _, v := range logits {
 		if v > m {
