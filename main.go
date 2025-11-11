@@ -25,32 +25,42 @@ func main() {
 
 	defer ort.DestroyEnvironment()
 
-	cacheNames, cacheValues := emptyCache()
-
-	logits, outputNames, outputs, err := forward("scripts/onnx-gpt2/model.onnx", 464, 0, cacheNames, cacheValues)
-
-	if err != nil {
+	if err := generate("scripts/onnx-gpt2/model.onnx", 464, 5); err != nil {
 		log.Fatal(err)
 	}
+}
 
-	probs := softmax(logits.GetData())
+func generate(model string, token int64, steps int64) error {
+	cacheNames, cacheValues := emptyCache()
 
-	idx, p := topK(probs, 10)
+	for step := range steps {
+		logits, _, outputs, err := forward(model, token, step, cacheNames, cacheValues)
 
-	for i, t := range idx {
-		fmt.Printf("%.4f [%d]\n", p[i], t)
+		if err != nil {
+			return err
+		}
+
+		probs := softmax(logits.GetData())
+
+		idx, p := topK(probs, 5)
+
+		fmt.Println()
+
+		for i, t := range idx {
+			fmt.Printf("%.4f [%d]\n", p[i], t)
+		}
+
+		token = int64(idx[0]) // choose best token
+
+		cacheValues = outputs[1:]
 	}
 
-	foo := outputNames[1:]
-	bar := outputs[1:]
-
-	fmt.Println(foo)
-	fmt.Println(bar)
+	return nil
 }
 
 func forward(model string, token int64, position int64, cacheNames []string, cacheValues []ort.Value) (*ort.Tensor[float32], []string, []ort.Value, error) {
 	inputNames, inputs, _ := initInputs(token, position)
-	outputNames, outputs, logits, _ := initOutputs()
+	outputNames, outputs, logits, _ := initOutputs(position)
 
 	inputNames = append(inputNames, cacheNames...)
 	inputs = append(inputs, cacheValues...)
@@ -115,7 +125,14 @@ func initInputs(token, position int64) ([]string, []ort.Value, error) {
 		positions = p
 	}
 
-	if m, err := ort.NewTensor[int64]([]int64{1, 1}, []int64{1}); err != nil {
+	maskData := make([]int64, position+1)
+	maskShape := []int64{1, position + 1}
+
+	for i := range maskData {
+		maskData[i] = 1
+	}
+
+	if m, err := ort.NewTensor[int64](maskShape, maskData); err != nil {
 		return nil, nil, err
 	} else {
 		attentionMask = m
@@ -126,7 +143,7 @@ func initInputs(token, position int64) ([]string, []ort.Value, error) {
 	return inputNames, inputs, nil
 }
 
-func initOutputs() ([]string, []ort.Value, *ort.Tensor[float32], error) {
+func initOutputs(position int64) ([]string, []ort.Value, *ort.Tensor[float32], error) {
 	outputNames := make([]string, 0, 1+2*nLayers)
 	outputValues := make([]ort.Value, 0, 1+2*nLayers)
 
@@ -139,7 +156,7 @@ func initOutputs() ([]string, []ort.Value, *ort.Tensor[float32], error) {
 	outputNames = append(outputNames, "logits")
 	outputValues = append(outputValues, ort.Value(logits))
 
-	shape := []int64{1, int64(nHeads), 1, int64(headDim)}
+	shape := []int64{1, int64(nHeads), position + 1, int64(headDim)}
 
 	for i := range nLayers {
 		kName := fmt.Sprintf("present.%d.key", i)
