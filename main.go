@@ -28,14 +28,16 @@ func main() {
 
 	prompt := []int64{464, 257, 5025}
 
-	if err := generate("scripts/onnx-gpt2/model.onnx", prompt, 5); err != nil {
+	if out, err := generate("scripts/onnx-gpt2/model.onnx", prompt, 5); err != nil {
 		log.Fatal(err)
+	} else {
+		fmt.Printf("\n%v\n", out)
 	}
 }
 
-func generate(model string, prompt []int64, steps int64) error {
+func generate(model string, prompt []int64, steps int64) ([]int64, error) {
 	if len(prompt) == 0 {
-		return errors.New("empty prompt")
+		return nil, errors.New("empty prompt")
 	}
 
 	cacheNames, cacheValues := emptyCache()
@@ -52,7 +54,7 @@ func generate(model string, prompt []int64, steps int64) error {
 			_, _, outputs, err := forward(model, token, position, cacheNames, cacheValues)
 
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 			cacheValues = outputs[1:]
@@ -62,11 +64,13 @@ func generate(model string, prompt []int64, steps int64) error {
 	token := prompt[len(prompt)-1]
 	offset := int64(len(prompt)) - 1
 
+	out := make([]int64, steps)
+
 	for step := range steps {
 		logits, _, outputs, err := forward(model, token, offset+step, cacheNames, cacheValues)
 
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		probs := softmax(logits.GetData())
@@ -81,10 +85,12 @@ func generate(model string, prompt []int64, steps int64) error {
 
 		token = int64(idx[0]) // choose best token
 
+		out[step] = token
+
 		cacheValues = outputs[1:]
 	}
 
-	return nil
+	return out, nil
 }
 
 func forward(model string, token int64, position int64, cacheNames []string, cacheValues []ort.Value) (*ort.Tensor[float32], []string, []ort.Value, error) {
