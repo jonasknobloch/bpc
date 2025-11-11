@@ -26,7 +26,7 @@ func main() {
 
 	defer ort.DestroyEnvironment()
 
-	prompt := []int64{464, 257, 5025}
+	prompt := []int64{464, 2068, 7586, 21831}
 
 	if out, err := generate("scripts/onnx-gpt2/model.onnx", prompt, 5); err != nil {
 		log.Fatal(err)
@@ -40,57 +40,42 @@ func generate(model string, prompt []int64, steps int64) ([]int64, error) {
 		return nil, errors.New("empty prompt")
 	}
 
+	context := int64(len(prompt))
+
 	cacheNames, cacheValues := emptyCache()
 
-	if len(prompt) > 1 {
-		for i := range prompt {
-			if i == len(prompt)-1 {
-				break
-			}
+	token := prompt[0]
 
-			position := int64(i)
-			token := prompt[i]
+	out := make([]int64, 0, steps+1)
 
-			_, _, outputs, err := forward(model, token, position, cacheNames, cacheValues)
-
-			if err != nil {
-				return nil, err
-			}
-
-			cacheValues = outputs[1:]
-		}
-	}
-
-	token := prompt[len(prompt)-1]
-	offset := int64(len(prompt)) - 1
-
-	out := make([]int64, steps)
-
-	for step := range steps {
-		logits, _, outputs, err := forward(model, token, offset+step, cacheNames, cacheValues)
+	for step := range context + steps {
+		_, _, outputs, err := forward(model, token, step, cacheNames, cacheValues)
 
 		if err != nil {
 			return nil, err
 		}
 
-		probs := softmax(logits.GetData())
+		logits := outputs[0].(*ort.Tensor[float32]).GetData()
 
-		idx, p := topK(probs, 5)
+		idx, p := topK(softmax(logits), 5)
 
-		fmt.Println()
+		fmt.Printf("\n%d\n\n", token)
 
 		for i, t := range idx {
-			fmt.Printf("%.4f [%d]\n", p[i], t)
+			fmt.Printf("%.4f %.4f [%d]\n", logits[t], p[i], t)
 		}
 
-		token = int64(idx[0]) // choose best token
-
-		out[step] = token
+		if step < context-1 {
+			token = prompt[step+1]
+		} else {
+			token = int64(idx[0]) // choose best token
+			out = append(out, token)
+		}
 
 		cacheValues = outputs[1:]
 	}
 
-	return out, nil
+	return out[:steps], nil
 }
 
 func forward(model string, token int64, position int64, cacheNames []string, cacheValues []ort.Value) (*ort.Tensor[float32], []string, []ort.Value, error) {
