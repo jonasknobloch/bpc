@@ -28,14 +28,14 @@ func main() {
 
 	prompt := []int64{464, 2068, 7586, 21831}
 
-	if out, err := generate("scripts/onnx-gpt2/model.onnx", prompt, 5); err != nil {
+	if out, err := generate("scripts/onnx-gpt2/model.onnx", prompt, 5, nil); err != nil {
 		log.Fatal(err)
 	} else {
 		fmt.Printf("\n%v\n", out)
 	}
 }
 
-func generate(model string, prompt []int64, steps int64) ([]int64, error) {
+func generate(model string, prompt []int64, steps int64, logits *[][]float32) ([]int64, error) {
 	if len(prompt) == 0 {
 		return nil, errors.New("empty prompt")
 	}
@@ -55,14 +55,18 @@ func generate(model string, prompt []int64, steps int64) ([]int64, error) {
 			return nil, err
 		}
 
-		logits := outputs[0].(*ort.Tensor[float32]).GetData()
+		l := outputs[0].(*ort.Tensor[float32]).GetData()
 
-		idx, p := topK(softmax(logits), 5)
+		if logits != nil {
+			*logits = append(*logits, l)
+		}
+
+		idx, p := topK(softmax(l), 5)
 
 		fmt.Printf("\n%d\n\n", token)
 
 		for i, t := range idx {
-			fmt.Printf("%.4f %.4f [%d]\n", logits[t], p[i], t)
+			fmt.Printf("%.4f %.4f [%d]\n", l[t], p[i], t)
 		}
 
 		if step < context-1 {
