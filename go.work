@@ -1,3 +1,7 @@
 go 1.24.7
 
-use ./gpt2
+use (
+	./bpc
+	./gpt2
+	./llm
+)
