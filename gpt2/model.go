@@ -3,8 +3,10 @@ package gpt2
 import (
 	"errors"
 	"fmt"
+	_ "llm"
 	"log"
 	"math"
+	"os"
 	"sort"
 
 	ort "github.com/yalue/onnxruntime_go"
@@ -17,7 +19,37 @@ const (
 	headDim   = 64
 )
 
-func Generate(model string, prompt []int64, steps int64, logits *[][]float32) ([]int64, error) {
+type Model struct {
+	name string
+}
+
+func NewModel(name string) *Model {
+	return &Model{
+		name: name,
+	}
+}
+
+func (m *Model) SharedLibraryPath() string {
+	p, ok := os.LookupEnv("ONNXRUNTIME_SHARED_LIBRARY_PATH")
+
+	if !ok {
+		// TODO embed runtime binaries
+	}
+
+	return p
+}
+
+func (m *Model) Init() error {
+	ort.SetSharedLibraryPath(m.SharedLibraryPath())
+
+	return ort.InitializeEnvironment()
+}
+
+func (m *Model) Destroy() error {
+	return ort.DestroyEnvironment()
+}
+
+func (m *Model) Generate(prompt []int64, steps int64, logits *[][]float32) ([]int64, error) {
 	if len(prompt) == 0 {
 		return nil, errors.New("empty prompt")
 	}
@@ -31,7 +63,7 @@ func Generate(model string, prompt []int64, steps int64, logits *[][]float32) ([
 	out := make([]int64, 0, steps+1)
 
 	for step := range context + steps {
-		_, _, outputs, err := forward(model, token, step, cacheNames, cacheValues)
+		_, _, outputs, err := forward(m.name, token, step, cacheNames, cacheValues)
 
 		if err != nil {
 			return nil, err
@@ -43,13 +75,13 @@ func Generate(model string, prompt []int64, steps int64, logits *[][]float32) ([
 			*logits = append(*logits, l)
 		}
 
-		idx, p := topK(softmax(l), 5)
+		idx, _ := topK(softmax(l), 5)
 
-		fmt.Printf("\n%d\n\n", token)
+		// fmt.Printf("\n%d\n\n", token)
 
-		for i, t := range idx {
-			fmt.Printf("%.4f %.4f [%d]\n", l[t], p[i], t)
-		}
+		// for i, t := range idx {
+		// 	fmt.Printf("%.4f %.4f [%d]\n", l[t], p[i], t)
+		// }
 
 		if step < context-1 {
 			token = prompt[step+1]
