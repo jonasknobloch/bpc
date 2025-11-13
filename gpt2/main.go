@@ -1,4 +1,4 @@
-package main
+package gpt2
 
 import (
 	"errors"
@@ -17,25 +17,7 @@ const (
 	headDim   = 64
 )
 
-func main() {
-	ort.SetSharedLibraryPath("lib/onnxruntime-osx-arm64-1.22.0/lib/libonnxruntime.1.22.0.dylib")
-
-	if err := ort.InitializeEnvironment(); err != nil {
-		log.Fatal(err)
-	}
-
-	defer ort.DestroyEnvironment()
-
-	prompt := []int64{464, 2068, 7586, 21831}
-
-	if out, err := generate("scripts/onnx-gpt2/model.onnx", prompt, 5, nil); err != nil {
-		log.Fatal(err)
-	} else {
-		fmt.Printf("\n%v\n", out)
-	}
-}
-
-func generate(model string, prompt []int64, steps int64, logits *[][]float32) ([]int64, error) {
+func Generate(model string, prompt []int64, steps int64, logits *[][]float32) ([]int64, error) {
 	if len(prompt) == 0 {
 		return nil, errors.New("empty prompt")
 	}

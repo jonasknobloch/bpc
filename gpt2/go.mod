@@ -1,4 +1,4 @@
-module bpc
+module gpt2
 
 go 1.24
 
